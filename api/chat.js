@@ -1,76 +1,99 @@
 const TOURNAMENTS = [
   { id: '37036', name: 'Artemis Invitational 2025' }
-  // Add more tournaments here as needed:
-  // { id: '12345', name: 'Some Other Tournament' }
+  // Add more tournaments here:
+  // { id: '99999', name: 'Next Tournament Name' }
 ];
 
 const CACHE_TTL_SECONDS = 3600; // 1 hour
 
 async function kvGet(key) {
-  const url = `${process.env.KV_REST_API_URL}/get/${key}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
-  });
-  const data = await res.json();
-  return data.result ? JSON.parse(data.result) : null;
+  try {
+    const url = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
+    });
+    const data = await res.json();
+    return data.result ? JSON.parse(data.result) : null;
+  } catch { return null; }
 }
 
 async function kvSet(key, value) {
-  const url = `${process.env.KV_REST_API_URL}/set/${key}`;
-  await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ value: JSON.stringify(value), ex: CACHE_TTL_SECONDS })
-  });
+  try {
+    const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ value: JSON.stringify(value), ex: CACHE_TTL_SECONDS })
+    });
+  } catch {}
 }
 
-async function fetchTabroomData(tournId) {
-  const res = await fetch(`https://www.tabroom.com/api/tourn/index.mjs?tourn_id=${tournId}`);
-  if (!res.ok) throw new Error(`Tabroom fetch failed: ${res.status}`);
-  return await res.json();
+function stripHtml(str) {
+  return str.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
-function formatTournamentData(raw, name) {
-  if (!raw) return `Tournament: ${name}\nNo data available.`;
-
+async function scrapeTabroom(tournId, name) {
   const lines = [`Tournament: ${name}`];
 
-  if (raw.name) lines.push(`Official Name: ${raw.name}`);
-  if (raw.start) lines.push(`Start Date: ${raw.start}`);
-  if (raw.end) lines.push(`End Date: ${raw.end}`);
-  if (raw.city && raw.state) lines.push(`Location: ${raw.city}, ${raw.state}`);
-  if (raw.reg_close) lines.push(`Registration Closes: ${raw.reg_close}`);
-  if (raw.drop_dead) lines.push(`Drop Deadline: ${raw.drop_dead}`);
+  // Fetch main invite page
+  const mainRes = await fetch(`https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=${tournId}`);
+  const mainHtml = await mainRes.text();
 
-  if (raw.events && Array.isArray(raw.events)) {
-    lines.push('\nEvents & Fees:');
-    for (const e of raw.events) {
-      const fee = e.entry_fee ? ` — $${e.entry_fee}` : '';
-      lines.push(`  • ${e.abbr || e.name}${fee}`);
+  // Extract key deadlines via regex
+  const tournDate = mainHtml.match(/Tournament Dates[\s\S]{0,300}?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^\n<]{3,30})/i);
+  const regClose = mainHtml.match(/Registration Closes[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+  const dropDead = mainHtml.match(/Drop online until[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+  const judgesDue = mainHtml.match(/Judge Information Due[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+
+  if (tournDate) lines.push(`Tournament Date: ${stripHtml(tournDate[1])}`);
+  if (regClose) lines.push(`Registration Closes: ${stripHtml(regClose[1])}`);
+  if (dropDead) lines.push(`Drop Deadline: ${stripHtml(dropDead[1])}`);
+  if (judgesDue) lines.push(`Judge Info Due: ${stripHtml(judgesDue[1])}`);
+
+  // Extract location
+  const locMatch = mainHtml.match(/Locations[\s\S]{0,300}?<a[^>]*>([^<]+)<\/a>/i);
+  if (locMatch) lines.push(`Location: ${locMatch[1].trim()}`);
+
+  // Extract contact email
+  const contactMatch = mainHtml.match(/Contacts[\s\S]{0,300}?<a[^>]*>([^<]+)<\/a>/i);
+  if (contactMatch) lines.push(`Contact: ${contactMatch[1].trim()}`);
+
+  // Fetch events page
+  const eventsRes = await fetch(`https://www.tabroom.com/index/tourn/events.mhtml?tourn_id=${tournId}`);
+  const eventsHtml = await eventsRes.text();
+
+  // Extract all event names from sidebar links
+  const eventLinks = [...eventsHtml.matchAll(/event_id=\d+[^>]*>([^<]+)<\/a>/g)];
+  if (eventLinks.length > 0) {
+    lines.push('\nEvents:');
+    for (const m of eventLinks) {
+      lines.push(`  • ${m[1].trim()}`);
     }
   }
+
+  // Extract entry fee
+  const feeMatch = eventsHtml.match(/Entry Fee[\s\S]{0,100}?\$([\d.]+)/i);
+  if (feeMatch) lines.push(`\nEntry Fee: $${feeMatch[1]}`);
 
   return lines.join('\n');
 }
 
 async function getTournamentContext() {
-  const cacheKey = 'tabroom_data_v1';
-  
-  // Try cache first
+  const cacheKey = 'tabroom_scraped_v2';
+
   const cached = await kvGet(cacheKey);
   if (cached) return cached;
 
-  // Fetch fresh data for all tournaments
   const sections = [];
   for (const t of TOURNAMENTS) {
     try {
-      const raw = await fetchTabroomData(t.id);
-      sections.push(formatTournamentData(raw, t.name));
+      const data = await scrapeTabroom(t.id, t.name);
+      sections.push(data);
     } catch (e) {
-      sections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
+      sections.push(`Tournament: ${t.name}\nData temporarily unavailable (${e.message})`);
     }
   }
 
@@ -101,7 +124,7 @@ export default async function handler(req, res) {
 Answer questions using ONLY the data below. If info is missing, say so clearly.
 Be concise, warm, and professional. Keep responses to 2-4 sentences.
 
-=== LIVE TABROOM DATA ===
+=== LIVE TABROOM DATA (auto-updated every hour) ===
 ${tournamentContext}
 
 === TEAM DOC ===
