@@ -59,8 +59,8 @@ async function scrapeTabroom(tournId, name) {
   if (cityMatch) lines.push(`City: ${cityMatch[1].trim()}`);
 
   // Extract venue name from Locations section
-  const venueMatch = mainHtml.match(/site_id=\d+[^>]*>([^<]+)<\/a>/i);
-  if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}`);
+  const venueMatch = mainHtml.match(/site_id=\d+[^"]*"[^>]*>([^<]{3,60})<\/a>/i);
+  if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}, Portland, OR`);
 
   // Extract contact
   const contactMatch = mainHtml.match(/mailto:[^"]+">([^<]+)<\/a>/i);
