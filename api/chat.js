@@ -34,7 +34,7 @@ Dress code: Business professional.`;
         'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b',
+        model: 'llama-3.1-8b',
         messages: [
           { role: 'system', content: SYSTEM },
           { role: 'user', content: question }
