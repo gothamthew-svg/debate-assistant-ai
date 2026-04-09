@@ -59,7 +59,10 @@ async function scrapeTabroom(tournId, name) {
   if (cityMatch) lines.push(`City: ${cityMatch[1].trim()}`);
 
   // Extract venue name from Locations section
-  const venueMatch = mainHtml.match(/site_id=\d+[^"]*"[^>]*>([^<]{3,60})<\/a>/i);
+  // Venue link format: [Sunset High School](url?site_id=...)
+  const venueMatch = mainHtml.match(/\[([^\]]+)\]\([^)]*site_id=\d+[^)]*\)/i) ||
+                     mainHtml.match(/<a[^>]*site_id=\d+[^>]*>([^<]+)<\/a>/i) ||
+                     mainHtml.match(/Locations[\s\S]{0,200}>\s*([A-Z][^<\n]{3,50})\s*<\/a>/i);
   if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}, Portland, OR`);
 
   // Extract contact
