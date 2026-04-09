@@ -1,10 +1,10 @@
 const TOURNAMENTS = [
   { id: '37036', name: 'Artemis Invitational 2025' }
-  // Keep this in sync with chat.js
+  // Keep in sync with chat.js
 ];
 
 async function kvSet(key, value) {
-  const url = `${process.env.KV_REST_API_URL}/set/${key}`;
+  const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
   await fetch(url, {
     method: 'POST',
     headers: {
@@ -15,30 +15,43 @@ async function kvSet(key, value) {
   });
 }
 
-async function fetchTabroomData(tournId) {
-  const res = await fetch(`https://www.tabroom.com/api/tourn/index.mjs?tourn_id=${tournId}`);
-  if (!res.ok) throw new Error(`Tabroom fetch failed: ${res.status}`);
-  return await res.json();
+function stripHtml(str) {
+  return str.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
-function formatTournamentData(raw, name) {
-  if (!raw) return `Tournament: ${name}\nNo data available.`;
-
+async function scrapeTabroom(tournId, name) {
   const lines = [`Tournament: ${name}`];
-  if (raw.name) lines.push(`Official Name: ${raw.name}`);
-  if (raw.start) lines.push(`Start Date: ${raw.start}`);
-  if (raw.end) lines.push(`End Date: ${raw.end}`);
-  if (raw.city && raw.state) lines.push(`Location: ${raw.city}, ${raw.state}`);
-  if (raw.reg_close) lines.push(`Registration Closes: ${raw.reg_close}`);
-  if (raw.drop_dead) lines.push(`Drop Deadline: ${raw.drop_dead}`);
 
-  if (raw.events && Array.isArray(raw.events)) {
-    lines.push('\nEvents & Fees:');
-    for (const e of raw.events) {
-      const fee = e.entry_fee ? ` — $${e.entry_fee}` : '';
-      lines.push(`  • ${e.abbr || e.name}${fee}`);
-    }
+  const mainRes = await fetch(`https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=${tournId}`);
+  const mainHtml = await mainRes.text();
+
+  const tournDate = mainHtml.match(/Tournament Dates[\s\S]{0,300}?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^\n<]{3,30})/i);
+  const regClose = mainHtml.match(/Registration Closes[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+  const dropDead = mainHtml.match(/Drop online until[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+  const judgesDue = mainHtml.match(/Judge Information Due[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+
+  if (tournDate) lines.push(`Tournament Date: ${stripHtml(tournDate[1])}`);
+  if (regClose) lines.push(`Registration Closes: ${stripHtml(regClose[1])}`);
+  if (dropDead) lines.push(`Drop Deadline: ${stripHtml(dropDead[1])}`);
+  if (judgesDue) lines.push(`Judge Info Due: ${stripHtml(judgesDue[1])}`);
+
+  const locMatch = mainHtml.match(/Locations[\s\S]{0,300}?<a[^>]*>([^<]+)<\/a>/i);
+  if (locMatch) lines.push(`Location: ${locMatch[1].trim()}`);
+
+  const contactMatch = mainHtml.match(/Contacts[\s\S]{0,300}?<a[^>]*>([^<]+)<\/a>/i);
+  if (contactMatch) lines.push(`Contact: ${contactMatch[1].trim()}`);
+
+  const eventsRes = await fetch(`https://www.tabroom.com/index/tourn/events.mhtml?tourn_id=${tournId}`);
+  const eventsHtml = await eventsRes.text();
+
+  const eventLinks = [...eventsHtml.matchAll(/event_id=\d+[^>]*>([^<]+)<\/a>/g)];
+  if (eventLinks.length > 0) {
+    lines.push('\nEvents:');
+    for (const m of eventLinks) lines.push(`  • ${m[1].trim()}`);
   }
+
+  const feeMatch = eventsHtml.match(/Entry Fee[\s\S]{0,100}?\$([\d.]+)/i);
+  if (feeMatch) lines.push(`\nEntry Fee: $${feeMatch[1]}`);
 
   return lines.join('\n');
 }
@@ -51,9 +64,9 @@ export default async function handler(req, res) {
 
   for (const t of TOURNAMENTS) {
     try {
-      const raw = await fetchTabroomData(t.id);
-      sections.push(formatTournamentData(raw, t.name));
-      results.push({ id: t.id, name: t.name, status: 'ok' });
+      const data = await scrapeTabroom(t.id, t.name);
+      sections.push(data);
+      results.push({ id: t.id, name: t.name, status: 'ok', preview: data.slice(0, 200) });
     } catch (e) {
       sections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
       results.push({ id: t.id, name: t.name, status: 'error', error: e.message });
@@ -61,7 +74,7 @@ export default async function handler(req, res) {
   }
 
   const context = sections.join('\n\n---\n\n');
-  await kvSet('tabroom_data_v1', context);
+  await kvSet('tabroom_scraped_v2', context);
 
   res.status(200).json({
     message: 'Cache refreshed successfully',
