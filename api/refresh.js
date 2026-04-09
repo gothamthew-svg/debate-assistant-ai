@@ -39,7 +39,9 @@ async function scrapeTabroom(tournId, name) {
                     mainHtml.match(/\d{4}\s*[—-]+\s*([A-Z][^<]{3,40})<\/h/i);
   if (cityMatch) lines.push(`City: ${cityMatch[1].trim()}`);
 
-  const venueMatch = mainHtml.match(/site_id=\d+[^"]*"[^>]*>([^<]{3,60})<\/a>/i);
+  const venueMatch = mainHtml.match(/\[([^\]]+)\]\([^)]*site_id=\d+[^)]*\)/i) ||
+                     mainHtml.match(/<a[^>]*site_id=\d+[^>]*>([^<]+)<\/a>/i) ||
+                     mainHtml.match(/Locations[\s\S]{0,200}>\s*([A-Z][^<\n]{3,50})\s*<\/a>/i);
   if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}, Portland, OR`);
 
   const contactMatch = mainHtml.match(/mailto:[^"]+">([^<]+)<\/a>/i);
