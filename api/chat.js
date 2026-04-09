@@ -27,24 +27,29 @@ Judging: URGENT — 1 judge required per 2 entries. Obligation not yet met!
 Dress code: Business professional.`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: SYSTEM + '\n\nQuestion: ' + question }] }],
-          generationConfig: { maxOutputTokens: 300, temperature: 0.3 }
-        })
-      }
-    );
+    const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b',
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: question }
+        ],
+        max_tokens: 300,
+        temperature: 0.3
+      })
+    });
 
     const data = await response.json();
     if (data.error) return res.status(500).json({ error: data.error.message });
 
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response received.';
+    const reply = data.choices?.[0]?.message?.content || 'No response received.';
     res.status(200).json({ reply });
   } catch (e) {
-    res.status(500).json({ error: 'Failed to contact Gemini API.' });
+    res.status(500).json({ error: 'Failed to contact Cerebras API.' });
   }
 }
