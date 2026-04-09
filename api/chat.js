@@ -53,12 +53,17 @@ async function scrapeTabroom(tournId, name) {
   if (dropDead) lines.push(`Drop Deadline: ${stripHtml(dropDead[1])}`);
   if (judgesDue) lines.push(`Judge Info Due: ${stripHtml(judgesDue[1])}`);
 
-  // Extract location
-  const locMatch = mainHtml.match(/Locations[\s\S]{0,300}?<a[^>]*>([^<]+)<\/a>/i);
-  if (locMatch) lines.push(`Location: ${locMatch[1].trim()}`);
+  // Extract city/state from subtitle (e.g. "2025 — Portland, OR/US")
+  const cityMatch = mainHtml.match(/<h5[^>]*>\s*\d{4}\s*[—-]+\s*([^<]+)<\/h5>/i) ||
+                    mainHtml.match(/\d{4}\s*[—-]+\s*([A-Z][^<]{3,40})<\/h/i);
+  if (cityMatch) lines.push(`City: ${cityMatch[1].trim()}`);
 
-  // Extract contact email
-  const contactMatch = mainHtml.match(/Contacts[\s\S]{0,300}?<a[^>]*>([^<]+)<\/a>/i);
+  // Extract venue name from Locations section
+  const venueMatch = mainHtml.match(/site_id=\d+[^>]*>([^<]+)<\/a>/i);
+  if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}`);
+
+  // Extract contact
+  const contactMatch = mainHtml.match(/mailto:[^"]+">([^<]+)<\/a>/i);
   if (contactMatch) lines.push(`Contact: ${contactMatch[1].trim()}`);
 
   // Fetch events page
