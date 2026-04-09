@@ -72,7 +72,7 @@ export default async function handler(req, res) {
     try {
       const data = await scrapeTabroom(t.id, t.name);
       sections.push(data);
-      results.push({ id: t.id, name: t.name, status: 'ok', preview: data.slice(0, 200) });
+      results.push({ id: t.id, name: t.name, status: 'ok', data });
     } catch (e) {
       sections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
       results.push({ id: t.id, name: t.name, status: 'error', error: e.message });
