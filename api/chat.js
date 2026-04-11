@@ -1,115 +1,3 @@
-const TOURNAMENTS = [
-  { id: '37036', name: 'Artemis Invitational 2025' }
-  // Add more tournaments here:
-  // { id: '99999', name: 'Next Tournament Name' }
-];
-
-const CACHE_TTL_SECONDS = 3600; // 1 hour
-
-async function kvGet(key) {
-  try {
-    const url = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
-    });
-    const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
-  } catch { return null; }
-}
-
-async function kvSet(key, value) {
-  try {
-    const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
-    await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ value: JSON.stringify(value), ex: CACHE_TTL_SECONDS })
-    });
-  } catch {}
-}
-
-function stripHtml(str) {
-  return str.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-}
-
-async function scrapeTabroom(tournId, name) {
-  const lines = [`Tournament: ${name}`];
-
-  // Fetch main invite page
-  const mainRes = await fetch(`https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=${tournId}`);
-  const mainHtml = await mainRes.text();
-
-  // Extract key deadlines via regex
-  const tournDate = mainHtml.match(/Tournament Dates[\s\S]{0,300}?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^\n<]{3,30})/i);
-  const regClose = mainHtml.match(/Registration Closes[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
-  const dropDead = mainHtml.match(/Drop online until[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
-  const judgesDue = mainHtml.match(/Judge Information Due[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
-
-  if (tournDate) lines.push(`Tournament Date: ${stripHtml(tournDate[1])}`);
-  if (regClose) lines.push(`Registration Closes: ${stripHtml(regClose[1])}`);
-  if (dropDead) lines.push(`Drop Deadline: ${stripHtml(dropDead[1])}`);
-  if (judgesDue) lines.push(`Judge Info Due: ${stripHtml(judgesDue[1])}`);
-
-  // Extract city/state from subtitle (e.g. "2025 — Portland, OR/US")
-  const cityMatch = mainHtml.match(/<h5[^>]*>\s*\d{4}\s*[—-]+\s*([^<]+)<\/h5>/i) ||
-                    mainHtml.match(/\d{4}\s*[—-]+\s*([A-Z][^<]{3,40})<\/h/i);
-  if (cityMatch) lines.push(`City: ${cityMatch[1].trim()}`);
-
-  // Extract venue name from Locations section
-  // Venue link format: [Sunset High School](url?site_id=...)
-  const venueMatch = mainHtml.match(/\[([^\]]+)\]\([^)]*site_id=\d+[^)]*\)/i) ||
-                     mainHtml.match(/<a[^>]*site_id=\d+[^>]*>([^<]+)<\/a>/i) ||
-                     mainHtml.match(/Locations[\s\S]{0,200}>\s*([A-Z][^<\n]{3,50})\s*<\/a>/i);
-  if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}, Portland, OR`);
-
-  // Extract contact
-  const contactMatch = mainHtml.match(/mailto:[^"]+">([^<]+)<\/a>/i);
-  if (contactMatch) lines.push(`Contact: ${contactMatch[1].trim()}`);
-
-  // Fetch events page
-  const eventsRes = await fetch(`https://www.tabroom.com/index/tourn/events.mhtml?tourn_id=${tournId}`);
-  const eventsHtml = await eventsRes.text();
-
-  // Extract all event names from sidebar links
-  const eventLinks = [...eventsHtml.matchAll(/event_id=\d+[^>]*>([^<]+)<\/a>/g)];
-  if (eventLinks.length > 0) {
-    lines.push('\nEvents:');
-    for (const m of eventLinks) {
-      lines.push(`  • ${m[1].trim()}`);
-    }
-  }
-
-  // Extract entry fee
-  const feeMatch = eventsHtml.match(/Entry Fee[\s\S]{0,100}?\$([\d.]+)/i);
-  if (feeMatch) lines.push(`\nEntry Fee: $${feeMatch[1]}`);
-
-  return lines.join('\n');
-}
-
-async function getTournamentContext() {
-  const cacheKey = 'tabroom_scraped_v2';
-
-  const cached = await kvGet(cacheKey);
-  if (cached) return cached;
-
-  const sections = [];
-  for (const t of TOURNAMENTS) {
-    try {
-      const data = await scrapeTabroom(t.id, t.name);
-      sections.push(data);
-    } catch (e) {
-      sections.push(`Tournament: ${t.name}\nData temporarily unavailable (${e.message})`);
-    }
-  }
-
-  const context = sections.join('\n\n---\n\n');
-  await kvSet(cacheKey, context);
-  return context;
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -121,24 +9,82 @@ export default async function handler(req, res) {
   const { question } = req.body;
   if (!question) return res.status(400).json({ error: 'No question provided' });
 
-  let tournamentContext;
-  try {
-    tournamentContext = await getTournamentContext();
-  } catch (e) {
-    tournamentContext = 'Tournament data temporarily unavailable.';
-  }
-
   const SYSTEM = `You are a helpful assistant for the Sunset High School speech and debate team.
-Answer questions using ONLY the data below. If info is missing, say so clearly.
-Be concise, warm, and professional. Keep responses to 2-4 sentences.
+Answer questions using the data below. Be concise, warm, and professional. Keep responses to 2-4 sentences.
+For tournament questions, use the Tabroom and Team Doc sections. For debate technique questions, use the Training Guide section.
 
-=== LIVE TABROOM DATA (auto-updated every hour) ===
-${tournamentContext}
+=== TABROOM DATA ===
+Tournament: Artemis Invitational 2025
+Location: Sunset High School, Portland, OR
+Date: November 1, 2025
+Registration closes: Oct 30 at 5:00 PM
+Drop deadline (online): Nov 1 at 6:45 AM
+Fees: Novice LD is $15
 
 === TEAM DOC ===
 Transportation: No bus provided. Students must arrange their own transportation.
 Judging: URGENT — 1 judge required per 2 entries. Obligation not yet met!
-Dress code: Business professional.`;
+Dress code: Business professional.
+
+=== DEBATE TRAINING GUIDE (NSDA) ===
+
+ARGUMENT STRUCTURE:
+Every argument needs 3 parts:
+- Claim: a declarative statement establishing your argument
+- Warrant: justification for why your claim is true (needs the most development — layer multiple warrants when possible)
+- Impact: the significance of the argument; why people should care
+
+REFUTING ARGUMENTS:
+- To attack the warrant: show it is untrue, prove it false, or show the opponent's plan is more harmful
+- To attack the impact: disprove the warrant so the impact never happens, or argue the impact is actually good
+- There are multiple refutation strategies — these are the most foundational ones
+
+FLOWING (taking notes in round):
+- All events require flowing (noting opponent arguments)
+- Come up with personal abbreviations for common words
+- Common examples: up arrow = increase, down arrow = decrease, arrow = leads to, J = justice, M = morality, HRts = human rights, ob = obligation, stats = statistics, circle-slash = eliminate, equals sign = equals, dollar sign = money
+- Students should develop their own system that works for them
+
+EVENT FORMATS:
+
+Public Forum (PF):
+- Teams of 2, debate current event topics
+- Coin toss determines side (PRO/CON) or speaker position (1st/2nd)
+- Includes cases, rebuttals, refutation, and crossfire (cross-examination)
+- Often judged by community members
+- More info: speechanddebate.org/publicforum
+
+Lincoln-Douglas (LD):
+- One-on-one format
+- Topics cover values like individual freedom vs. collective good
+- No internet use in round; evidence must be gathered beforehand
+- Round is roughly 45 minutes: constructive speeches, rebuttals, cross-examination
+- More info: speechanddebate.org/lincolndouglas
+
+Policy Debate:
+- Two-on-two format, one policy question per academic year
+- Affirmative proposes a plan; negative argues against it
+- Includes cross-examination; judge(s) decide winner
+- More info: speechanddebate.org/policy
+
+Congressional Debate:
+- Simulates U.S. legislative process
+- Students debate bills and resolutions in a group setting
+- Speeches alternate for/against; elected presiding officer runs the session
+- Judged on research, argumentation, delivery, and parliamentary procedure
+- More info: speechanddebate.org/congress
+
+World Schools Debate:
+- Combines prepared and impromptu topics
+- Highly interactive — debaters can engage each other during speeches
+- Requires teamwork and in-depth argumentation
+- More info: speechanddebate.org/worldschoolsdebate
+
+GENERAL ADVICE FOR NEW DEBATERS:
+- You won't know everything before your first tournament — that's normal
+- After each tournament, identify what you didn't know and work on it
+- Every tournament, every debater does something effectively — build on that
+- More resources at speechanddebate.org`;
 
   try {
     const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
@@ -148,12 +94,12 @@ Dress code: Business professional.`;
         'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b',
+        model: 'llama-3.3-70b',
         messages: [
           { role: 'system', content: SYSTEM },
           { role: 'user', content: question }
         ],
-        max_tokens: 150,
+        max_tokens: 300,
         temperature: 0.3
       })
     });
