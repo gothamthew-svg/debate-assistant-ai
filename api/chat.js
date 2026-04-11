@@ -58,12 +58,10 @@ function formatTournamentData(raw, name) {
 
 async function getTournamentContext() {
   const cacheKey = 'tabroom_data_v1';
-  
-  // Try cache first
+
   const cached = await kvGet(cacheKey);
   if (cached) return cached;
 
-  // Fetch fresh data for all tournaments
   const sections = [];
   for (const t of TOURNAMENTS) {
     try {
@@ -98,8 +96,8 @@ export default async function handler(req, res) {
   }
 
   const SYSTEM = `You are a helpful assistant for the Sunset High School speech and debate team.
-Answer questions using ONLY the data below. If info is missing, say so clearly.
-Be concise, warm, and professional. Keep responses to 2-4 sentences.
+Answer questions using the data below. Be concise, warm, and professional. Keep responses to 2-4 sentences.
+For tournament questions, use the Tabroom and Team Doc sections. For debate technique questions, use the Training Guide section.
 
 === LIVE TABROOM DATA ===
 ${tournamentContext}
@@ -107,7 +105,67 @@ ${tournamentContext}
 === TEAM DOC ===
 Transportation: No bus provided. Students must arrange their own transportation.
 Judging: URGENT — 1 judge required per 2 entries. Obligation not yet met!
-Dress code: Business professional.`;
+Dress code: Business professional.
+
+=== DEBATE TRAINING GUIDE (NSDA) ===
+
+ARGUMENT STRUCTURE:
+Every argument needs 3 parts:
+- Claim: a declarative statement establishing your argument
+- Warrant: justification for why your claim is true (needs the most development — layer multiple warrants when possible)
+- Impact: the significance of the argument; why people should care
+
+REFUTING ARGUMENTS:
+- To attack the warrant: show it is untrue, prove it false, or show the opponent's plan is more harmful
+- To attack the impact: disprove the warrant so the impact never happens, or argue the impact is actually good
+- There are multiple refutation strategies — these are the most foundational ones
+
+FLOWING (taking notes in round):
+- All events require flowing (noting opponent arguments)
+- Come up with personal abbreviations for common words
+- Common examples: up arrow = increase, down arrow = decrease, arrow = leads to, J = justice, M = morality, HRts = human rights, ob = obligation, stats = statistics, circle-slash = eliminate, equals sign = equals, dollar sign = money
+- Students should develop their own system that works for them
+
+EVENT FORMATS:
+
+Public Forum (PF):
+- Teams of 2, debate current event topics
+- Coin toss determines side (PRO/CON) or speaker position (1st/2nd)
+- Includes cases, rebuttals, refutation, and crossfire (cross-examination)
+- Often judged by community members
+- More info: speechanddebate.org/publicforum
+
+Lincoln-Douglas (LD):
+- One-on-one format
+- Topics cover values like individual freedom vs. collective good
+- No internet use in round; evidence must be gathered beforehand
+- Round is roughly 45 minutes: constructive speeches, rebuttals, cross-examination
+- More info: speechanddebate.org/lincolndouglas
+
+Policy Debate:
+- Two-on-two format, one policy question per academic year
+- Affirmative proposes a plan; negative argues against it
+- Includes cross-examination; judge(s) decide winner
+- More info: speechanddebate.org/policy
+
+Congressional Debate:
+- Simulates U.S. legislative process
+- Students debate bills and resolutions in a group setting
+- Speeches alternate for/against; elected presiding officer runs the session
+- Judged on research, argumentation, delivery, and parliamentary procedure
+- More info: speechanddebate.org/congress
+
+World Schools Debate:
+- Combines prepared and impromptu topics
+- Highly interactive — debaters can engage each other during speeches
+- Requires teamwork and in-depth argumentation
+- More info: speechanddebate.org/worldschoolsdebate
+
+GENERAL ADVICE FOR NEW DEBATERS:
+- You won't know everything before your first tournament — that's normal
+- After each tournament, identify what you didn't know and work on it
+- Every tournament, every debater does something effectively — build on that
+- More resources at speechanddebate.org`;
 
   try {
     const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
@@ -117,12 +175,12 @@ Dress code: Business professional.`;
         'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama-3.1-8b',
+        model: 'llama-3.3-70b',
         messages: [
           { role: 'system', content: SYSTEM },
           { role: 'user', content: question }
         ],
-        max_tokens: 150,
+        max_tokens: 300,
         temperature: 0.3
       })
     });
