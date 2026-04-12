@@ -1,7 +1,8 @@
 const TOURNAMENTS = [
   { id: '37036', name: 'Artemis Invitational 2025' }
-  // Keep in sync with chat.js
 ];
+
+const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRSpAiZyjHnoxJOx8FVU2S12k6LfcfKznn3p7VO2urAgOeRZMHCgfC59sKL7H9o9bcCjvvG4GVlr_jO/pub?gid=0&single=true&output=csv';
 
 async function kvSet(key, value) {
   const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
@@ -57,34 +58,61 @@ async function scrapeTabroom(tournId, name) {
   }
 
   const feeMatch = eventsHtml.match(/Entry Fee[\s\S]{0,100}?\$([\d.]+)/i);
-  if (feeMatch) lines.push(`\nEntry Fee: $${feeMatch[1]}`);
+  if (feeMatch) lines.push(`Entry Fee: $${feeMatch[1]}`);
 
   return lines.join('\n');
+}
+
+async function fetchSheetData() {
+  const res = await fetch(SHEET_CSV_URL);
+  if (!res.ok) throw new Error(`Sheet fetch failed: ${res.status}`);
+  const csv = await res.text();
+
+  const lines = csv.trim().split('\n').map(r =>
+    r.split(',').map(c => c.replace(/^"|"$/g, '').trim())
+  );
+
+  const info = ['=== TEAM INFO (from coach spreadsheet) ==='];
+  for (const row of lines) {
+    if (row[0] && row[1]) info.push(`${row[0]}: ${row[1]}`);
+  }
+  return info.join('\n');
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  const sections = [];
-  const results = [];
+  const results = {};
 
+  // Scrape Tabroom
+  const tabroomSections = [];
   for (const t of TOURNAMENTS) {
     try {
       const data = await scrapeTabroom(t.id, t.name);
-      sections.push(data);
-      results.push({ id: t.id, name: t.name, status: 'ok', data });
+      tabroomSections.push(data);
+      results[t.name] = { status: 'ok', preview: data.slice(0, 300) };
     } catch (e) {
-      sections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
-      results.push({ id: t.id, name: t.name, status: 'error', error: e.message });
+      tabroomSections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
+      results[t.name] = { status: 'error', error: e.message };
     }
   }
 
-  const context = sections.join('\n\n---\n\n');
-  await kvSet('tabroom_scraped_v2', context);
+  // Fetch sheet
+  let sheetData;
+  try {
+    sheetData = await fetchSheetData();
+    results['Google Sheet'] = { status: 'ok', preview: sheetData };
+  } catch (e) {
+    sheetData = '=== TEAM INFO ===\nTeam spreadsheet temporarily unavailable.';
+    results['Google Sheet'] = { status: 'error', error: e.message };
+  }
+
+  const context = '=== LIVE TABROOM DATA ===\n' + tabroomSections.join('\n\n---\n\n') + '\n\n' + sheetData;
+  await kvSet('all_context_v1', context);
 
   res.status(200).json({
     message: 'Cache refreshed successfully',
-    tournaments: results,
+    results,
     refreshedAt: new Date().toISOString()
   });
 }
