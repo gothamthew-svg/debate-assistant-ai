@@ -26,7 +26,22 @@ export default async function handler(req, res) {
     results.kvError = e.message;
   }
 
-  // Try fetching sheet directly
+  // Try reading context the same way chat.js does
+  try {
+    const url = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent('all_context_v1')}`;
+    const kvRes = await fetch(url, {
+      headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
+    });
+    const kvData = await kvRes.json();
+    let context = null;
+    if (kvData.result) {
+      try { context = JSON.parse(kvData.result); } catch { context = kvData.result; }
+    }
+    results.contextType = typeof context;
+    results.contextPreview = context ? context.slice(0, 800) : null;
+  } catch (e) {
+    results.contextReadError = e.message;
+  }
   try {
     const sheetRes = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vRSpAiZyjHnoxJOx8FVU2S12k6LfcfKznn3p7VO2urAgOeRZMHCgfC59sKL7H9o9bcCjvvG4GVlr_jO/pub?gid=0&single=true&output=csv');
     results.sheetStatus = sheetRes.status;
