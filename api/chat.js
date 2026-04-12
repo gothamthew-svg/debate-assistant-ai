@@ -1,12 +1,15 @@
 const TOURNAMENTS = [
   { id: '37036', name: 'Artemis Invitational 2025' }
+  // Add more: { id: '99999', name: 'Next Tournament' }
 ];
 
-const CACHE_TTL_SECONDS = 3600;
+const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRSpAiZyjHnoxJOx8FVU2S12k6LfcfKznn3p7VO2urAgOeRZMHCgfC59sKL7H9o9bcCjvvG4GVlr_jO/pub?gid=0&single=true&output=csv';
+
+const CACHE_TTL_SECONDS = 3600; // 1 hour
 
 async function kvGet(key) {
   try {
-    const url = `${process.env.KV_REST_API_URL}/get/${key}`;
+    const url = `${process.env.KV_REST_API_URL}/get/${encodeURIComponent(key)}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
     });
@@ -17,7 +20,7 @@ async function kvGet(key) {
 
 async function kvSet(key, value) {
   try {
-    const url = `${process.env.KV_REST_API_URL}/set/${key}`;
+    const url = `${process.env.KV_REST_API_URL}/set/${encodeURIComponent(key)}`;
     await fetch(url, {
       method: 'POST',
       headers: {
@@ -29,47 +32,97 @@ async function kvSet(key, value) {
   } catch {}
 }
 
-async function fetchTabroomData(tournId) {
-  const res = await fetch(`https://www.tabroom.com/api/tourn/index.mjs?tourn_id=${tournId}`);
-  if (!res.ok) throw new Error(`Tabroom fetch failed: ${res.status}`);
-  return await res.json();
+function stripHtml(str) {
+  return str.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
-function formatTournamentData(raw, name) {
-  if (!raw) return `Tournament: ${name}\nNo data available.`;
+async function scrapeTabroom(tournId, name) {
   const lines = [`Tournament: ${name}`];
-  if (raw.name) lines.push(`Official Name: ${raw.name}`);
-  if (raw.start) lines.push(`Start Date: ${raw.start}`);
-  if (raw.end) lines.push(`End Date: ${raw.end}`);
-  if (raw.city && raw.state) lines.push(`Location: ${raw.city}, ${raw.state}`);
-  if (raw.reg_close) lines.push(`Registration Closes: ${raw.reg_close}`);
-  if (raw.drop_dead) lines.push(`Drop Deadline: ${raw.drop_dead}`);
-  if (raw.events && Array.isArray(raw.events)) {
-    lines.push('\nEvents & Fees:');
-    for (const e of raw.events) {
-      const fee = e.entry_fee ? ` — $${e.entry_fee}` : '';
-      lines.push(`  • ${e.abbr || e.name}${fee}`);
-    }
+
+  const mainRes = await fetch(`https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=${tournId}`);
+  const mainHtml = await mainRes.text();
+
+  const tournDate = mainHtml.match(/Tournament Dates[\s\S]{0,300}?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^\n<]{3,30})/i);
+  const regClose = mainHtml.match(/Registration Closes[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+  const dropDead = mainHtml.match(/Drop online until[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+  const judgesDue = mainHtml.match(/Judge Information Due[\s\S]{0,200}?((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^\n<]{5,40})/i);
+
+  if (tournDate) lines.push(`Tournament Date: ${stripHtml(tournDate[1])}`);
+  if (regClose) lines.push(`Registration Closes: ${stripHtml(regClose[1])}`);
+  if (dropDead) lines.push(`Drop Deadline: ${stripHtml(dropDead[1])}`);
+  if (judgesDue) lines.push(`Judge Info Due: ${stripHtml(judgesDue[1])}`);
+
+  const cityMatch = mainHtml.match(/<h5[^>]*>\s*\d{4}\s*[—-]+\s*([^<]+)<\/h5>/i) ||
+                    mainHtml.match(/\d{4}\s*[—-]+\s*([A-Z][^<]{3,40})<\/h/i);
+  if (cityMatch) lines.push(`City: ${cityMatch[1].trim()}`);
+
+  const venueMatch = mainHtml.match(/\[([^\]]+)\]\([^)]*site_id=\d+[^)]*\)/i) ||
+                     mainHtml.match(/<a[^>]*site_id=\d+[^>]*>([^<]+)<\/a>/i) ||
+                     mainHtml.match(/Locations[\s\S]{0,200}>\s*([A-Z][^<\n]{3,50})\s*<\/a>/i);
+  if (venueMatch) lines.push(`Venue: ${venueMatch[1].trim()}, Portland, OR`);
+
+  const contactMatch = mainHtml.match(/mailto:[^"]+">([^<]+)<\/a>/i);
+  if (contactMatch) lines.push(`Contact: ${contactMatch[1].trim()}`);
+
+  const eventsRes = await fetch(`https://www.tabroom.com/index/tourn/events.mhtml?tourn_id=${tournId}`);
+  const eventsHtml = await eventsRes.text();
+
+  const eventLinks = [...eventsHtml.matchAll(/event_id=\d+[^>]*>([^<]+)<\/a>/g)];
+  if (eventLinks.length > 0) {
+    lines.push('\nEvents:');
+    for (const m of eventLinks) lines.push(`  • ${m[1].trim()}`);
   }
+
+  const feeMatch = eventsHtml.match(/Entry Fee[\s\S]{0,100}?\$([\d.]+)/i);
+  if (feeMatch) lines.push(`Entry Fee: $${feeMatch[1]}`);
+
   return lines.join('\n');
 }
 
-async function getTournamentContext() {
-  const cacheKey = 'tabroom_data_v1';
+async function fetchSheetData() {
+  const res = await fetch(SHEET_CSV_URL);
+  if (!res.ok) throw new Error(`Sheet fetch failed: ${res.status}`);
+  const csv = await res.text();
+
+  const lines = csv.trim().split('\n').map(r =>
+    r.split(',').map(c => c.replace(/^"|"$/g, '').trim())
+  );
+
+  const info = ['=== TEAM INFO (from coach spreadsheet) ==='];
+  for (const row of lines) {
+    if (row[0] && row[1]) {
+      info.push(`${row[0]}: ${row[1]}`);
+    }
+  }
+  return info.join('\n');
+}
+
+async function getAllContext() {
+  const cacheKey = 'all_context_v1';
   const cached = await kvGet(cacheKey);
   if (cached) return cached;
 
-  const sections = [];
+  const parts = [];
+
+  // Tabroom data
+  const tabroomSections = [];
   for (const t of TOURNAMENTS) {
     try {
-      const raw = await fetchTabroomData(t.id);
-      sections.push(formatTournamentData(raw, t.name));
+      tabroomSections.push(await scrapeTabroom(t.id, t.name));
     } catch (e) {
-      sections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
+      tabroomSections.push(`Tournament: ${t.name}\nData temporarily unavailable.`);
     }
   }
+  parts.push('=== LIVE TABROOM DATA ===\n' + tabroomSections.join('\n\n---\n\n'));
 
-  const context = sections.join('\n\n---\n\n');
+  // Google Sheet data
+  try {
+    parts.push(await fetchSheetData());
+  } catch (e) {
+    parts.push('=== TEAM INFO ===\nTeam spreadsheet temporarily unavailable.');
+  }
+
+  const context = parts.join('\n\n');
   await kvSet(cacheKey, context);
   return context;
 }
@@ -85,58 +138,18 @@ export default async function handler(req, res) {
   const { question } = req.body;
   if (!question) return res.status(400).json({ error: 'No question provided' });
 
-  let tournamentContext;
+  let context;
   try {
-    tournamentContext = await getTournamentContext();
+    context = await getAllContext();
   } catch (e) {
-    tournamentContext = 'Tournament data temporarily unavailable.';
+    context = 'Data temporarily unavailable.';
   }
 
   const SYSTEM = `You are a helpful assistant for the Sunset High School speech and debate team.
-Answer questions using the data below. Be concise, warm, and professional. Keep responses to 2-4 sentences.
-For tournament questions, use the Tabroom and Team Doc sections. For debate technique questions, use the Training Guide section.
+Answer questions using ONLY the data below. If info is missing, say so clearly.
+Be concise, warm, and professional. Keep responses to 2-4 sentences.
 
-=== LIVE TABROOM DATA ===
-${tournamentContext}
-
-=== TEAM DOC ===
-Transportation: No bus provided. Students must arrange their own transportation.
-Judging: URGENT — 1 judge required per 2 entries. Obligation not yet met!
-Dress code: Business professional.
-
-=== DEBATE TRAINING GUIDE (NSDA) ===
-
-ARGUMENT STRUCTURE:
-Every argument needs 3 parts:
-- Claim: a declarative statement establishing your argument
-- Warrant: justification for why your claim is true (needs the most development — layer multiple warrants when possible)
-- Impact: the significance of the argument; why people should care
-
-REFUTING ARGUMENTS:
-- To attack the warrant: show it is untrue, prove it false, or show the opponent's plan is more harmful
-- To attack the impact: disprove the warrant so the impact never happens, or argue the impact is actually good
-
-FLOWING (taking notes in round):
-- All events require flowing (noting opponent arguments)
-- Common abbreviations: up arrow = increase, down arrow = decrease, arrow = leads to, J = justice, M = morality, HRts = human rights, ob = obligation, stats = statistics, dollar sign = money
-- Students should develop their own system that works for them
-
-EVENT FORMATS:
-
-Public Forum (PF): Teams of 2, debate current event topics. Coin toss determines side (PRO/CON) or position. Includes crossfire (cross-examination). More info: speechanddebate.org/publicforum
-
-Lincoln-Douglas (LD): One-on-one format. Topics cover values. No internet in round. Round is roughly 45 minutes. More info: speechanddebate.org/lincolndouglas
-
-Policy Debate: Two-on-two format, one policy question per year. Affirmative proposes a plan; negative argues against it. More info: speechanddebate.org/policy
-
-Congressional Debate: Simulates U.S. legislative process. Students debate bills in a group. Judged on research, argumentation, delivery, and parliamentary procedure. More info: speechanddebate.org/congress
-
-World Schools Debate: Combines prepared and impromptu topics. Highly interactive. Requires teamwork and in-depth argumentation. More info: speechanddebate.org/worldschoolsdebate
-
-GENERAL ADVICE:
-- You won't know everything before your first tournament — that's normal
-- After each tournament, identify what you didn't know and work on it
-- More resources at speechanddebate.org`;
+${context}`;
 
   try {
     const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
@@ -146,28 +159,20 @@ GENERAL ADVICE:
         'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'llama3.1-8b',
+        model: 'llama-3.1-8b',
         messages: [
           { role: 'system', content: SYSTEM },
           { role: 'user', content: question }
         ],
-        max_tokens: 300,
+        max_tokens: 150,
         temperature: 0.3
       })
     });
 
-    const raw = await response.text();
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch (e) {
-      return res.status(500).json({ error: 'Invalid JSON from Cerebras: ' + raw.slice(0, 200) });
-    }
+    const data = await response.json();
+    if (data.error) return res.status(500).json({ error: data.error.message });
 
-    if (data.error) return res.status(500).json({ error: data.error.message || JSON.stringify(data.error) });
-    if (!data.choices || !data.choices[0]) return res.status(500).json({ error: 'Unexpected response: ' + JSON.stringify(data).slice(0, 200) });
-
-    const reply = data.choices[0].message?.content || 'No response received.';
+    const reply = data.choices?.[0]?.message?.content || 'No response received.';
     res.status(200).json({ reply });
   } catch (e) {
     res.status(500).json({ error: 'Request failed: ' + e.message });
