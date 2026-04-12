@@ -14,7 +14,8 @@ async function kvGet(key) {
       headers: { Authorization: `Bearer ${process.env.KV_REST_API_TOKEN}` }
     });
     const data = await res.json();
-    return data.result ? JSON.parse(data.result) : null;
+    if (!data.result) return null;
+    try { return JSON.parse(data.result); } catch { return data.result; }
   } catch { return null; }
 }
 
