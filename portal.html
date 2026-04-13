@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tournament Entry Portal — Sunset HS</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy: #1B2A4A;
+      --purple: #534AB7;
+      --purple-light: #EEEDFE;
+      --gold: #F5A623;
+      --gold-light: #FFF8E1;
+      --red: #E53935;
+      --red-light: #FFEBEE;
+      --green: #2E7D32;
+      --green-light: #E8F5E9;
+      --blue: #1565C0;
+      --blue-light: #E3F2FD;
+      --gray: #F4F5F7;
+      --border: #E0E4ED;
+      --text: #1B2A4A;
+      --muted: #6B7280;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--gray);
+      color: var(--text);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .portal {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .portal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .portal-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .last-updated {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--purple);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .tournament-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      animation: fadeUp 0.4s ease both;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-header {
+      background: var(--navy);
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      margin-top: 2px;
+    }
+
+    .tabroom-link {
+      font-size: 11px;
+      font-weight: 600;
+      color: white;
+      text-decoration: none;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 6px;
+      padding: 5px 10px;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+
+    .tabroom-link:hover { background: rgba(255,255,255,0.25); }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    .info-cell {
+      background: white;
+      padding: 16px 20px;
+    }
+
+    .info-cell.full { grid-column: 1 / -1; }
+
+    .cell-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .cell-value {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .alert-row {
+      display: flex;
+      gap: 10px;
+      padding: 12px 20px;
+      background: var(--border);
+      border-top: 1px solid var(--border);
+    }
+
+    .alert-card {
+      flex: 1;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .alert-card.warn { background: var(--gold-light); border: 1px solid #FFD54F; }
+    .alert-card.danger { background: var(--red-light); border: 1px solid #EF9A9A; }
+    .alert-card.info { background: var(--blue-light); border: 1px solid #90CAF9; }
+    .alert-card.ok { background: var(--green-light); border: 1px solid #A5D6A7; }
+
+    .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+
+    .alert-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 3px;
+    }
+
+    .alert-card.warn .alert-label { color: #B45309; }
+    .alert-card.danger .alert-label { color: var(--red); }
+    .alert-card.info .alert-label { color: var(--blue); }
+    .alert-card.ok .alert-label { color: var(--green); }
+
+    .alert-value {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .events-section {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+    }
+
+    .events-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .events-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .event-tag {
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--purple-light);
+      color: var(--purple);
+      border-radius: 6px;
+      padding: 4px 10px;
+    }
+
+    .team-section {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border);
+      background: #FAFBFD;
+    }
+
+    .team-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .team-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .team-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .team-item-label {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .team-item-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .error-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .powered-by {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 16px;
+    }
+
+    @media (max-width: 500px) {
+      .info-grid { grid-template-columns: 1fr; }
+      .team-grid { grid-template-columns: 1fr; }
+      .alert-row { flex-direction: column; }
+      body { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+<div class="portal">
+  <div class="portal-header">
+    <div class="portal-title">🏆 Tournament Entry Portal</div>
+    <div class="last-updated" id="updated">Loading...</div>
+  </div>
+  <div id="content">
+    <div class="loading">
+      <div class="spinner"></div>
+      Fetching live tournament data...
+    </div>
+  </div>
+  <div class="powered-by">Live data from Tabroom & Sunset HS team sheet · Auto-updates every hour</div>
+</div>
+
+<script>
+  const REFRESH_URL = 'https://debate-assistant-ai.vercel.app/api/refresh';
+
+  function parseContext(contextStr) {
+    const data = {};
+
+    // Tabroom fields
+    const get = (label) => {
+      const m = contextStr.match(new RegExp(label + '[:\\s]+([^\\n]+)', 'i'));
+      return m ? m[1].trim() : null;
+    };
+
+    data.tournamentName = get('Tournament');
+    data.date = get('Tournament Date');
+    data.regCloses = get('Registration Closes');
+    data.dropDeadline = get('Drop Deadline');
+    data.judgesDue = get('Judge Info Due');
+    data.venue = get('Venue');
+    data.city = get('City');
+    data.contact = get('Contact');
+    data.entryFee = get('Entry Fee');
+
+    // Events
+    const eventsMatch = contextStr.match(/Events:([\s\S]*?)(?:Entry Fee|---|\n\n=)/i);
+    if (eventsMatch) {
+      data.events = eventsMatch[1]
+        .split('\n')
+        .map(l => l.replace(/•/g, '').trim())
+        .filter(l => l.length > 2);
+    }
+
+    // Team sheet fields
+    data.dropDeadlineTeam = get('Drop deadline');
+    data.busStart = get('Bus start');
+    data.busEnd = get('Bus end');
+    data.busLocation = get('Bus location');
+    data.location = get('Location');
+    data.lastSignup = get('Last Date to sign up for tournaments');
+    data.changeDeadline = get('Deadline for changing events');
+    data.judges = get('Judges\\?');
+
+    return data;
+  }
+
+  function judgeStatus(judgesStr) {
+    if (!judgesStr) return null;
+    const m = judgesStr.match(/(\d+)\/(\d+)/);
+    if (m) return { met: parseInt(m[1]), total: parseInt(m[2]), text: judgesStr };
+    return { text: judgesStr };
+  }
+
+  function renderPortal(results, refreshedAt) {
+    const content = document.getElementById('content');
+    const updated = document.getElementById('updated');
+
+    const time = new Date(refreshedAt);
+    updated.textContent = 'Updated ' + time.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+    if (!results || Object.keys(results).length === 0) {
+      content.innerHTML = '<div class="error-card">No tournament data available.</div>';
+      return;
+    }
+
+    // Combine all context for parsing
+    let fullContext = '';
+    for (const key of Object.keys(results)) {
+      if (results[key].preview || results[key].data) {
+        fullContext += (results[key].preview || results[key].data || '') + '\n';
+      }
+    }
+
+    // Get sheet data separately
+    const sheetResult = results['Google Sheet'];
+    const sheetContext = sheetResult ? (sheetResult.preview || sheetResult.data || '') : '';
+
+    const d = parseContext(fullContext + '\n' + sheetContext);
+    const judge = judgeStatus(d.judges);
+    const judgeOk = judge && judge.met && judge.total && judge.met >= judge.total;
+
+    // Find tournament keys (not Google Sheet)
+    const tournKeys = Object.keys(results).filter(k => k !== 'Google Sheet');
+
+    let html = '';
+
+    for (const tournName of tournKeys) {
+      const tournResult = results[tournName];
+      const tabroomId = '37036'; // fallback — could be made dynamic
+
+      html += `
+      <div class="tournament-card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${tournName}</div>
+            <div class="card-subtitle">${d.venue || 'Sunset High School'}</div>
+          </div>
+          <a class="tabroom-link" href="https://www.tabroom.com/index/tourn/index.mhtml?tourn_id=${tabroomId}" target="_blank">View on Tabroom ↗</a>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-cell">
+            <div class="cell-label">Tournament Date</div>
+            <div class="cell-value">${d.date || '—'}</div>
+          </div>
+          <div class="info-cell">
+            <div class="cell-label">Location</div>
+            <div class="cell-value">${d.venue || d.location || '—'}</div>
+          </div>
+          <div class="info-cell">
+            <div class="cell-label">Registration Closes</div>
+            <div class="cell-value">${d.regCloses || '—'}</div>
+          </div>
+          <div class="info-cell">
+            <div class="cell-label">Drop Deadline</div>
+            <div class="cell-value">${d.dropDeadline || d.dropDeadlineTeam || '—'}</div>
+          </div>
+          <div class="info-cell">
+            <div class="cell-label">Entry Fee</div>
+            <div class="cell-value">${d.entryFee || '—'}</div>
+          </div>
+          <div class="info-cell">
+            <div class="cell-label">Contact</div>
+            <div class="cell-value">${d.contact || '—'}</div>
+          </div>
+        </div>
+
+        <div class="alert-row">
+          <div class="alert-card ${judgeOk ? 'ok' : 'danger'}">
+            <div class="alert-icon">${judgeOk ? '✅' : '⚠️'}</div>
+            <div>
+              <div class="alert-label">Judge Requirement</div>
+              <div class="alert-value">${judge ? judge.text : '1 judge per 2 entries required'}</div>
+            </div>
+          </div>
+          <div class="alert-card warn">
+            <div class="alert-icon">📅</div>
+            <div>
+              <div class="alert-label">Sign-Up Deadline</div>
+              <div class="alert-value">${d.lastSignup || d.regCloses || '—'}</div>
+            </div>
+          </div>
+        </div>
+
+        ${d.busStart ? `
+        <div class="alert-row">
+          <div class="alert-card info">
+            <div class="alert-icon">🚌</div>
+            <div>
+              <div class="alert-label">Bus Departure</div>
+              <div class="alert-value">${d.busStart}${d.busLocation ? ' · ' + d.busLocation : ''}</div>
+            </div>
+          </div>
+          <div class="alert-card info">
+            <div class="alert-icon">🏁</div>
+            <div>
+              <div class="alert-label">Bus Return</div>
+              <div class="alert-value">${d.busEnd || '—'}</div>
+            </div>
+          </div>
+        </div>` : ''}
+
+        ${d.events && d.events.length > 0 ? `
+        <div class="events-section">
+          <div class="events-title">Events Offered</div>
+          <div class="events-grid">
+            ${d.events.map(e => `<span class="event-tag">${e}</span>`).join('')}
+          </div>
+        </div>` : ''}
+
+        ${d.changeDeadline ? `
+        <div class="team-section">
+          <div class="team-title">Team Deadlines</div>
+          <div class="team-grid">
+            ${d.changeDeadline ? `<div class="team-item"><div class="team-item-label">Change Events By</div><div class="team-item-value">${d.changeDeadline}</div></div>` : ''}
+            ${d.judgesDue ? `<div class="team-item"><div class="team-item-label">Judge Info Due</div><div class="team-item-value">${d.judgesDue}</div></div>` : ''}
+          </div>
+        </div>` : ''}
+      </div>`;
+    }
+
+    content.innerHTML = html;
+  }
+
+  async function loadData() {
+    try {
+      const res = await fetch(REFRESH_URL);
+      const data = await res.json();
+      renderPortal(data.results, data.refreshedAt);
+    } catch (e) {
+      document.getElementById('content').innerHTML =
+        '<div class="error-card">Unable to load tournament data. Please try again later.</div>';
+      document.getElementById('updated').textContent = 'Error loading data';
+    }
+  }
+
+  loadData();
+  // Auto-refresh every 60 minutes
+  setInterval(loadData, 60 * 60 * 1000);
+</script>
+</body>
+</html>
