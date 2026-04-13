@@ -50,7 +50,7 @@
     <div class="dot"></div>
     <div>
       <div class="htitle">Sunset HS — Debate Assistant (AI)</div>
-      <div class="hsub">Artemis Invitational 2025 · Powered by Gemini</div>
+      <div class="hsub">Artemis Invitational 2025 · Powered by Cerebras</div>
     </div>
     <button class="src-btn" onclick="document.getElementById('sb').classList.toggle('open')">Sources</button>
   </div>
@@ -58,7 +58,7 @@
     <div class="src-item"><span class="badge b-tab">Tabroom</span> Artemis Invitational 2025</div>
     <div class="src-item"><span class="badge b-doc">Team Doc</span> Sunset HS logistics</div>
   </div>
-  <div class="alert">⚠ Judge obligation not yet met — contact the coach ASAP.</div>
+  <div class="alert">⚠ Judge obligation not yet met — please sign up!</div>
   <div class="msgs" id="msgs">
     <div class="msg bot">
       <div class="bubble">Hi! I'm the Sunset HS AI debate assistant. Ask me anything about the Artemis Invitational — events, fees, deadlines, judging, and more.</div>
@@ -69,7 +69,6 @@
     <button class="chip" onclick="ask('What is the drop deadline?')">Drop deadline?</button>
     <button class="chip" onclick="ask('How do I get there?')">Transportation?</button>
     <button class="chip" onclick="ask('What is the judging requirement?')">Judging?</button>
-    <button class="chip" onclick="ask('What is the entry fee?')">Fees?</button>
     <button class="chip" onclick="ask('What should I wear?')">Dress code?</button>
   </div>
   <div class="input-row">
@@ -81,8 +80,7 @@
 </div>
 
 <script>
-  // ⚠️ Replace this with your actual Vercel deployment URL after deploying
-   const API_URL = 'https://debate-assistant-ai.vercel.app/api/chat';
+  const API_URL = 'https://debate-assistant-ai.vercel.app/api/chat';
 
   function addMsg(text, role) {
     const msgs = document.getElementById('msgs');
@@ -118,7 +116,6 @@
     const q = inp.value.trim();
     if (!q) return;
     inp.value = '';
-    document.getElementById('chips').style.display = 'none';
     addMsg(q, 'user');
     showTyping();
 
