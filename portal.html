@@ -69,6 +69,7 @@
     .foot-note { font-size: 11px; color: var(--subtle); font-family: 'IBM Plex Mono', monospace; }
     .refresh-btn { font-size: 11px; color: var(--blue); background: none; border: none; cursor: pointer; font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; padding: 0; }
     .refresh-btn:hover { text-decoration: underline; }
+    .refresh-btn:disabled { color: var(--subtle); cursor: default; text-decoration: none; }
     .page-footer { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
     .footer-note { font-size: 11px; color: var(--subtle); font-family: 'IBM Plex Mono', monospace; }
     @media (max-width: 500px) {
@@ -119,8 +120,10 @@
       date: get(tabroomCtx, 'Tournament Date'),
       venue: get(tabroomCtx, 'Venue'),
       city: get(tabroomCtx, 'City'),
-      regCloses: get(tabroomCtx, 'Registration Closes'),
-      dropDeadline: get(tabroomCtx, 'Drop Deadline') || get(sheetCtx, 'Drop deadline'),
+      // Sheet takes priority over Tabroom for all deadline fields
+      regCloses: get(sheetCtx, 'Registration closes') || get(tabroomCtx, 'Registration Closes'),
+      dropDeadline: get(sheetCtx, 'Drop deadline') || get(tabroomCtx, 'Drop Deadline'),
+      changeDeadline: get(sheetCtx, 'Deadline for changing events'),
       judgesDue: get(tabroomCtx, 'Judge Info Due'),
       contact: get(tabroomCtx, 'Contact'),
       entryFee: get(tabroomCtx, 'Entry Fee'),
@@ -129,7 +132,6 @@
       busEnd: get(sheetCtx, 'Bus end'),
       busLocation: get(sheetCtx, 'Bus location'),
       lastSignup: get(sheetCtx, 'Last Date to sign up for tournaments'),
-      changeDeadline: get(sheetCtx, 'Deadline for changing events'),
       judges: get(sheetCtx, 'Judges\\?') || get(sheetCtx, 'Judges'),
     };
   }
@@ -219,17 +221,17 @@
         </div>` : ''}
 
         <div class="card-foot">
-          <div class="foot-note">Live data · updates automatically</div>
-          <button class="refresh-btn" onclick="loadData()">Refresh now</button>
+          <div class="foot-note" id="foot-time">Live data · updates automatically</div>
+          <button class="refresh-btn" id="refresh-btn" onclick="manualRefresh()">Refresh now</button>
         </div>
       </div>`;
     }
 
     document.getElementById('content').innerHTML = html;
     const t = new Date(refreshedAt);
-    document.getElementById('updated-at').textContent = 'Last updated ' +
-      t.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ' at ' +
+    const timeStr = t.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ' at ' +
       t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    document.getElementById('updated-at').textContent = 'Last updated ' + timeStr;
   }
 
   async function loadData() {
@@ -240,6 +242,22 @@
     } catch(e) {
       document.getElementById('content').innerHTML =
         '<div style="padding:40px 20px;text-align:center;color:#888;font-size:13px;">Unable to load data. Please try again later.</div>';
+    }
+  }
+
+  async function manualRefresh() {
+    const btn = document.getElementById('refresh-btn');
+    const foot = document.getElementById('foot-time');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing...';
+    if (foot) foot.textContent = 'Fetching latest data...';
+    try {
+      const res = await fetch(API);
+      const data = await res.json();
+      render(data.results, data.refreshedAt);
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Refresh now'; }
     }
   }
 
